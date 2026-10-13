@@ -33,6 +33,8 @@ fn on(var: &str) -> bool {
 }
 
 fn main() {
+    // the vendored usbd-ethernet keeps its (never enabled) `defmt` cfgs verbatim
+    println!("cargo:rustc-check-cfg=cfg(feature, values(\"defmt\"))");
     println!("cargo:rustc-check-cfg=cfg(ferric_link_active)");
     println!("cargo:rustc-check-cfg=cfg(ferric_link_stub)");
     println!("cargo:rustc-check-cfg=cfg(ferric_link_rp)");

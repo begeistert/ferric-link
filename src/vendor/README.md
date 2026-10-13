@@ -27,8 +27,9 @@ Both classes:
 
 `usbd_ethernet` only:
 
-- the `defmt` logging and derives are removed. Upstream's manifest forces `usb-device`'s and `smoltcp`'s `defmt`
-  features on, which obliges the final firmware to link a `defmt` global logger; without them none is needed;
+- the `defmt` code is left verbatim but never enabled here (the `defmt` feature does not exist). Upstream's manifest
+  forces `usb-device`'s and `smoltcp`'s `defmt` features on, which obliges the final firmware to link a `defmt` global
+  logger; this crate does not turn them on, so none is needed;
 - the MAC address string is a `[u8; 12]` instead of a `heapless::String<12>` (one dependency fewer);
 - the `mod.rs` that ties the three files together replaces `lib.rs`.
 
