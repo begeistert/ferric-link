@@ -1,14 +1,148 @@
 [package]
 name = "ferric-link"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 authors = ["Iván Montiel Cardona <ivan.montiel.c@gmail.com>"]
-description = "The Ferric Link console for Raspberry Pi Pico firmware: read_serial! and logging that compile anywhere, and talk to the Ferric iPad IDE when it is attached"
+description = "The Ferric Link console for Raspberry Pi Pico and Pico 2 firmware: Ethernet over USB with a TCP console, read_serial! and log routing for the Ferric iPad IDE; the API compiles anywhere"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/begeistert/ferric-link"
 readme = "README.md"
-keywords = ["embedded", "no-std", "rp2040", "rp2350", "console"]
+keywords = ["embedded", "no-std", "rp2040", "rp2350", "usb"]
 categories = ["embedded", "no-std"]
+# `.cargo/config.toml` only steers building this crate's own examples; cargo
+# never reads it out of a dependency's extracted source anyway.
+exclude = [".cargo/", ".github/", "INTEGRATION.md"]
+
+[lib]
+# Doctests need `std` (they run on the host); the crate itself stays `no_std`.
+# They only exercise the no-HAL API, where `read_serial!` and `init_log` are stubs.
 
 [dependencies]
+# ── shared by every flavour ─────────────────────────────────────────────────
+critical-section = { version = "1.2", optional = true }
+log = { version = "0.4", optional = true }
+
+# ── rp2040 / rp235x: usb-device + smoltcp, synchronous, in the USB interrupt ─
+# Two RP2040 HAL releases, one feature each: the project's HAL and this crate's
+# must be the same copy (two copies of the HAL fail to link), and `rp-pico` 0.9
+# (Ferric's Pico 1 template) is still on 0.10.
+rp2040-hal = { version = "0.11", features = ["rt"], optional = true }
+rp2040-hal-0-10 = { package = "rp2040-hal", version = "0.10.2", features = ["rt"], optional = true }
+rp235x-hal = { version = "0.4", features = ["rt"], optional = true }
+cortex-m = { version = "0.7.9", optional = true }
+usb-device = { version = "0.3.2", optional = true }
+usbd-serial = { version = "0.2", optional = true }
+smoltcp = { version = "0.12", default-features = false, features = [
+    "proto-ipv4",
+    "medium-ethernet",
+    "socket-tcp",
+    "socket-udp",
+], optional = true }
+embedded-io = { version = "0.6", optional = true }
+
+# ── embassy: embassy-usb + embassy-net, asynchronous, RP2350 only ───────────
+embassy-executor = { version = "0.10.0", optional = true }
+embassy-time = { version = "0.5.1", optional = true }
+embassy-rp = { version = "0.10.0", features = ["rp235xa", "time-driver"], optional = true }
+embassy-usb = { version = "0.6.0", default-features = false, optional = true }
+embassy-usb-driver = { version = "0.2", optional = true }
+embassy-net = { version = "0.9.1", default-features = false, features = [
+    "proto-ipv4",
+    "medium-ethernet",
+    "tcp",
+    "udp",
+], optional = true }
+embassy-net-driver-channel = { version = "0.4", optional = true }
+embassy-sync = { version = "0.8.0", optional = true }
+embassy-futures = { version = "0.1.2", optional = true }
+edge-dhcp = { version = "0.8.0", optional = true }
+edge-nal = { version = "0.7.0", optional = true }
+edge-nal-embassy = { version = "0.9.0", default-features = false, features = [
+    "proto-ipv4",
+    "medium-ethernet",
+    "udp",
+], optional = true }
+embedded-io-async = { version = "0.7", optional = true }
+static_cell = { version = "2.1", optional = true }
+heapless = { version = "0.9", optional = true }
+
+[dev-dependencies]
+# the embedded examples
+cortex-m-rt = "0.7.6"
+panic-halt = "1.0"
+embedded-hal = "1.0"
+embedded-io = "0.6"
+rp2040-boot2 = "0.3"
+log = "0.4"
+
+[features]
+default = ["log"]
+
+## Presents the Link over `rp2040-hal` 0.11 directly (RP2040: original Pico).
+rp2040 = [
+    "dep:rp2040-hal",
+    "dep:cortex-m",
+    "dep:usb-device",
+    "dep:smoltcp",
+    "dep:embedded-io",
+    "dep:critical-section",
+]
+## The same over `rp2040-hal` 0.10, the release `rp-pico` 0.9 is built on. Use it
+## instead of `rp2040` when the project depends on `rp-pico` 0.9 (or on that HAL).
+rp2040-hal-0-10 = [
+    "dep:rp2040-hal-0-10",
+    "dep:cortex-m",
+    "dep:usb-device",
+    "dep:smoltcp",
+    "dep:embedded-io",
+    "dep:critical-section",
+]
+## Presents the Link over `rp235x-hal` directly (RP2350: Pico 2).
+rp235x = [
+    "dep:rp235x-hal",
+    "dep:cortex-m",
+    "dep:usb-device",
+    "dep:smoltcp",
+    "dep:embedded-io",
+    "dep:critical-section",
+]
+## Presents the Link over `embassy-rp` / `embassy-usb` / `embassy-net` (RP2350 only).
+embassy = [
+    "dep:embassy-executor",
+    "dep:embassy-time",
+    "dep:embassy-rp",
+    "dep:embassy-usb",
+    "dep:embassy-usb-driver",
+    "dep:embassy-net",
+    "dep:embassy-net-driver-channel",
+    "dep:embassy-sync",
+    "dep:embassy-futures",
+    "dep:edge-dhcp",
+    "dep:edge-nal",
+    "dep:edge-nal-embassy",
+    "dep:embedded-io-async",
+    "dep:static_cell",
+    "dep:heapless",
+    "dep:critical-section",
+]
+## Routes the `log` crate to the console (`init_log()` does something).
+log = ["dep:log"]
+## Keeps the Link in release builds. Without it a release build gets the stub
+## (same API, nothing behind it), as Ferric has always done.
+always = []
+## Also presents a CDC-ACM serial port (`/dev/tty.usbmodem…`) next to the Link.
+## The Link Ferric injects has none, so this is off by default.
+serial = ["dep:usbd-serial"]
+
+[[example]]
+name = "rp2040_blink_console"
+required-features = ["rp2040"]
+
+[[example]]
+name = "rp235x_blink_console"
+required-features = ["rp235x"]
+
+[[example]]
+name = "embassy_blink_console"
+required-features = ["embassy"]

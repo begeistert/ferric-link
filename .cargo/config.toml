@@ -1,0 +1,24 @@
+# Linker setup for the embedded examples. No `[build] target`, on purpose:
+# `cargo test` / `cargo doc` / a plain `cargo build` must still default to the
+# host so the pure core (no HAL feature) builds there; pick the embedded
+# target explicitly, and set FERRIC_LINK_BUILD_EXAMPLES=1 so build.rs
+# provides `memory.x` (see build.rs's own doc comment for why that is opt-in):
+#
+#   FERRIC_LINK_BUILD_EXAMPLES=1 cargo build --example rp2040_blink_console \
+#       --features rp2040 --target thumbv6m-none-eabi
+
+[target.thumbv6m-none-eabi]
+# * --nmagic turns off page alignment of sections (saves flash space)
+# * -Tlink.x is cortex-m-rt's linker script, which pulls in `memory.x`
+#   (written to OUT_DIR by this crate's build.rs)
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+]
+
+[target.thumbv8m.main-none-eabihf]
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+    "-C", "target-cpu=cortex-m33",
+]

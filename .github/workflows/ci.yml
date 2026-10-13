@@ -4,33 +4,108 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions: { contents: read }
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  check:
-    name: Test, lint and build for the Picos
+  host:
+    name: "Test, lint and docs on the host (no HAL, the stubs)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: stable
-          targets: thumbv6m-none-eabi, thumbv8m.main-none-eabihf
           components: clippy
       - run: cargo test --all-targets
       - run: cargo test --doc
       - run: cargo clippy --all-targets -- -D warnings
-      - name: Build for RP2040 (thumbv6m) and RP2350 (thumbv8m.main)
-        run: |
-          cargo build --target thumbv6m-none-eabi
-          cargo build --target thumbv8m.main-none-eabihf
+      - run: cargo check --no-default-features
       - run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+      - name: The package builds from its own tarball
+        run: cargo package
+
+  flavours:
+    name: ${{ matrix.feature }} (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { feature: rp2040,          target: thumbv6m-none-eabi }
+          - { feature: rp2040-hal-0-10, target: thumbv6m-none-eabi }
+          - { feature: rp235x,          target: thumbv8m.main-none-eabihf }
+          - { feature: embassy,         target: thumbv8m.main-none-eabihf }
+        profile: [debug, release]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+          components: clippy
+      - name: Flags
+        id: flags
+        run: echo "release=$([[ ${{ matrix.profile }} == release ]] && echo --release)" >> "$GITHUB_OUTPUT"
+      # debug: the Link; release: the stub
+      - run: cargo build --lib --target ${{ matrix.target }} --features ${{ matrix.feature }} ${{ steps.flags.outputs.release }}
+      - run: cargo clippy --lib --target ${{ matrix.target }} --features ${{ matrix.feature }} ${{ steps.flags.outputs.release }} -- -D warnings
+      # the Link kept in release, and with the CDC-ACM port
+      - run: cargo build --lib --target ${{ matrix.target }} --features ${{ matrix.feature }},always,serial ${{ steps.flags.outputs.release }}
+      - run: cargo clippy --lib --target ${{ matrix.target }} --features ${{ matrix.feature }},always,serial ${{ steps.flags.outputs.release }} -- -D warnings
+      - run: cargo build --lib --target ${{ matrix.target }} --no-default-features --features ${{ matrix.feature }} ${{ steps.flags.outputs.release }}
+      - name: Docs
+        run: cargo doc --no-deps --target ${{ matrix.target }} --features ${{ matrix.feature }}
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  examples:
+    name: example ${{ matrix.example }} (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: rp2040_blink_console
+            target: thumbv6m-none-eabi
+            features: rp2040,rp2040-hal/critical-section-impl
+          - example: rp235x_blink_console
+            target: thumbv8m.main-none-eabihf
+            features: rp235x,rp235x-hal/critical-section-impl
+          - example: embassy_blink_console
+            target: thumbv8m.main-none-eabihf
+            features: embassy,embassy-rp/critical-section-impl,embassy-executor/platform-cortex-m,embassy-executor/executor-thread
+        profile: [debug, release]
+    env:
+      FERRIC_LINK_BUILD_EXAMPLES: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+          components: clippy
+      - name: Flags
+        id: flags
+        run: echo "release=$([[ ${{ matrix.profile }} == release ]] && echo --release)" >> "$GITHUB_OUTPUT"
+      - run: cargo build --example ${{ matrix.example }} --target ${{ matrix.target }} --features ${{ matrix.features }} ${{ steps.flags.outputs.release }}
+      - run: cargo clippy --example ${{ matrix.example }} --target ${{ matrix.target }} --features ${{ matrix.features }} ${{ steps.flags.outputs.release }} -- -D warnings
+      # debug carries the Link, release is the stub: the build script's rule, seen in the binary
+      - name: The Link is in the debug binary and not in the release one
+        run: |
+          bin=target/${{ matrix.target }}/${{ matrix.profile }}/examples/${{ matrix.example }}
+          found=$(strings -a "$bin" | grep -c 'Ferric Link (red sobre USB)' || true)
+          if [[ ${{ matrix.profile }} == debug ]]; then expected=1; else expected=0; fi
+          [[ $found == "$expected" ]] || { echo "::error::$found copies of the product string in ${{ matrix.profile }}, expected $expected"; exit 1; }
 
   msrv:
-    name: Minimum Rust version (rust-version in Cargo.toml)
+    name: Minimum Rust version (rust-version in Cargo.toml; the embassy flavour needs a newer compiler)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -39,5 +114,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
-          targets: thumbv6m-none-eabi
-      - run: cargo build --target thumbv6m-none-eabi
+          targets: thumbv6m-none-eabi, thumbv8m.main-none-eabihf
+      - run: cargo build --lib
+      - run: cargo build --lib --target thumbv6m-none-eabi --features rp2040
+      - run: cargo build --lib --target thumbv6m-none-eabi --features rp2040-hal-0-10
+      - run: cargo build --lib --target thumbv8m.main-none-eabihf --features rp235x
