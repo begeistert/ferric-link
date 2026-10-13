@@ -37,12 +37,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        feature: [rp2040, rp2040-hal-0-10, rp235x, embassy]
+        profile: [debug, release]
         include:
           - { feature: rp2040,          target: thumbv6m-none-eabi }
           - { feature: rp2040-hal-0-10, target: thumbv6m-none-eabi }
           - { feature: rp235x,          target: thumbv8m.main-none-eabihf }
           - { feature: embassy,         target: thumbv8m.main-none-eabihf }
-        profile: [debug, release]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
@@ -71,6 +72,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        example: [rp2040_blink_console, rp235x_blink_console, embassy_blink_console]
+        profile: [debug, release]
         include:
           - example: rp2040_blink_console
             target: thumbv6m-none-eabi
@@ -81,7 +84,6 @@ jobs:
           - example: embassy_blink_console
             target: thumbv8m.main-none-eabihf
             features: embassy,embassy-rp/critical-section-impl,embassy-executor/platform-cortex-m,embassy-executor/executor-thread
-        profile: [debug, release]
     env:
       FERRIC_LINK_BUILD_EXAMPLES: "1"
     steps:
