@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: { contents: read }
+
+jobs:
+  check:
+    name: Test, lint and build for the Picos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+          targets: thumbv6m-none-eabi, thumbv8m.main-none-eabihf
+          components: clippy
+      - run: cargo test --all-targets
+      - run: cargo test --doc
+      - run: cargo clippy --all-targets -- -D warnings
+      - name: Build for RP2040 (thumbv6m) and RP2350 (thumbv8m.main)
+        run: |
+          cargo build --target thumbv6m-none-eabi
+          cargo build --target thumbv8m.main-none-eabihf
+      - run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    name: Minimum Rust version (rust-version in Cargo.toml)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - id: msrv
+        run: echo "version=$(sed -n 's/^rust-version *= *"\(.*\)"/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+          targets: thumbv6m-none-eabi
+      - run: cargo build --target thumbv6m-none-eabi
